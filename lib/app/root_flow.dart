@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/services/app_services.dart';
 import '../features/admin/presentation/screens/admin_home_screen.dart';
 import '../features/admin/presentation/screens/admin_login_screen.dart';
 import '../features/agent/presentation/screens/agent_home_screen.dart';
@@ -31,7 +32,9 @@ enum AppStage {
 }
 
 class RootFlow extends StatefulWidget {
-  const RootFlow({super.key});
+  const RootFlow({super.key, required this.services});
+
+  final AppServices services;
 
   @override
   State<RootFlow> createState() => _RootFlowState();
@@ -40,10 +43,13 @@ class RootFlow extends StatefulWidget {
 class _RootFlowState extends State<RootFlow> {
   AppStage _stage = AppStage.splash;
   Timer? _timer;
+  late final AppServices _services;
 
   @override
   void initState() {
     super.initState();
+    _services = widget.services;
+    unawaited(_seedInMemoryData());
     _timer = Timer(const Duration(seconds: 3), () {
       if (!mounted) {
         return;
@@ -64,6 +70,14 @@ class _RootFlowState extends State<RootFlow> {
     setState(() {
       _stage = stage;
     });
+  }
+
+  Future<void> _seedInMemoryData() async {
+    await _services.wallet.credit(
+      userId: 'demo-farmer',
+      amount: 1978300,
+      reference: 'seed-wallet-credit',
+    );
   }
 
   @override
