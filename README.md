@@ -1,16 +1,37 @@
-# myapp
+# FarmConnect NG (Flutter)
 
-A new Flutter project.
+## Runtime Adapter Mode
 
-## Getting Started
+The app now supports two service backends through `AppServices`:
 
-This project is a starting point for a Flutter application.
+- `AppServices.api(...)` (default)
+- `AppServices.inMemory()` (demo/local fallback)
 
-A few resources to get you started if this is your first Flutter project:
+Configured in `lib/app/app.dart` using compile-time flags:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- `FARMCONNECT_USE_IN_MEMORY` (`true` or `false`, default `false`)
+- `FARMCONNECT_API_BASE_URL` (default `http://localhost:8080/api`)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Run Examples
+
+Use REST adapter (default):
+
+```bash
+flutter run --dart-define=FARMCONNECT_API_BASE_URL=http://localhost:8080/api
+```
+
+Use in-memory adapter:
+
+```bash
+flutter run --dart-define=FARMCONNECT_USE_IN_MEMORY=true
+```
+
+## Adapter Location
+
+REST adapter implementation is in:
+
+- `lib/core/services/api/`
+
+Service contracts are in:
+
+- `lib/core/services/`

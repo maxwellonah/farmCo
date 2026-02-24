@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/services/app_services.dart';
+import '../core/services/api/api_config.dart';
 import 'root_flow.dart';
 
 class FarmConnectApp extends StatefulWidget {
@@ -11,12 +12,30 @@ class FarmConnectApp extends StatefulWidget {
 }
 
 class _FarmConnectAppState extends State<FarmConnectApp> {
+  static const bool _useInMemory = bool.fromEnvironment(
+    'FARMCONNECT_USE_IN_MEMORY',
+    defaultValue: false,
+  );
+  static const String _apiBaseUrl = String.fromEnvironment(
+    'FARMCONNECT_API_BASE_URL',
+    defaultValue: 'http://localhost:8080/api',
+  );
+
   late final AppServices _services;
 
   @override
   void initState() {
     super.initState();
-    _services = AppServices.inMemory();
+    _services = _useInMemory
+        ? AppServices.inMemory()
+        : AppServices.api(
+            config: const ApiConfig(
+              baseUrl: _apiBaseUrl,
+              defaultHeaders: <String, String>{
+                'x-client-platform': 'flutter',
+              },
+            ),
+          );
   }
 
   @override

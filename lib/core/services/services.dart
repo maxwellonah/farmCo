@@ -1,4 +1,5 @@
 export 'app_services.dart';
+export 'api/api_services.dart';
 export 'app_notification_service.dart';
 export 'auction_service.dart';
 export 'auth_service.dart';

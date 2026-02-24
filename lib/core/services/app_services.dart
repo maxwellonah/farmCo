@@ -1,4 +1,5 @@
 import 'app_notification_service.dart';
+import 'api/api_services.dart';
 import 'auction_service.dart';
 import 'auth_service.dart';
 import 'bid_service.dart';
@@ -18,6 +19,7 @@ class AppServices {
     required this.orders,
     required this.wallet,
     required this.notifications,
+    required this.supportsLocalSeeding,
   });
 
   final AuthService auth;
@@ -28,6 +30,7 @@ class AppServices {
   final OrderService orders;
   final WalletService wallet;
   final AppNotificationService notifications;
+  final bool supportsLocalSeeding;
 
   factory AppServices.inMemory() {
     return AppServices(
@@ -39,6 +42,27 @@ class AppServices {
       orders: InMemoryOrderService(),
       wallet: InMemoryWalletService(),
       notifications: InMemoryAppNotificationService(),
+      supportsLocalSeeding: true,
+    );
+  }
+
+  factory AppServices.api({
+    required ApiConfig config,
+  }) {
+    final ApiClient client = ApiClient(config);
+    return AppServices(
+      auth: ApiAuthService(client),
+      profiles: ApiProfileService(client),
+      inventory: ApiInventoryService(client, pollInterval: config.pollInterval),
+      auctions: ApiAuctionService(client, pollInterval: config.pollInterval),
+      bids: ApiBidService(client, pollInterval: config.pollInterval),
+      orders: ApiOrderService(client, pollInterval: config.pollInterval),
+      wallet: ApiWalletService(client, pollInterval: config.pollInterval),
+      notifications: ApiAppNotificationService(
+        client,
+        pollInterval: config.pollInterval,
+      ),
+      supportsLocalSeeding: false,
     );
   }
 }

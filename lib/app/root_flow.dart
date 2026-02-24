@@ -76,6 +76,9 @@ class _RootFlowState extends State<RootFlow> {
   }
 
   Future<void> _seedInMemoryData() async {
+    if (!_services.supportsLocalSeeding) {
+      return;
+    }
     if (_seeded) {
       return;
     }
