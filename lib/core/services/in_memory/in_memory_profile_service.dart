@@ -29,4 +29,19 @@ class InMemoryProfileService implements ProfileService {
   Future<void> saveFarmerProfile(FarmerProfile profile) async {
     _farmers[profile.userId] = profile;
   }
+
+  @override
+  Future<List<AgentProfile>> listAgents() async =>
+      _agents.values.toList()
+        ..sort((AgentProfile a, AgentProfile b) => b.createdAt.compareTo(a.createdAt));
+
+  @override
+  Future<List<BuyerProfile>> listBuyers() async =>
+      _buyers.values.toList()
+        ..sort((BuyerProfile a, BuyerProfile b) => b.createdAt.compareTo(a.createdAt));
+
+  @override
+  Future<List<FarmerProfile>> listFarmers() async =>
+      _farmers.values.toList()
+        ..sort((FarmerProfile a, FarmerProfile b) => b.createdAt.compareTo(a.createdAt));
 }

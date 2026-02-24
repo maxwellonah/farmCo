@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
+
 class BuyerOnboardingScreen extends StatefulWidget {
   const BuyerOnboardingScreen({
     super.key,
+    required this.services,
+    required this.userId,
     required this.onBack,
     required this.onComplete,
   });
 
+  final AppServices services;
+  final String userId;
   final VoidCallback onBack;
   final VoidCallback onComplete;
 
@@ -16,6 +23,58 @@ class BuyerOnboardingScreen extends StatefulWidget {
 
 class _BuyerOnboardingScreenState extends State<BuyerOnboardingScreen> {
   int _step = 0;
+  String _businessType = 'Processor';
+  final TextEditingController _companyController =
+      TextEditingController(text: 'Green Mills');
+  final TextEditingController _phoneController =
+      TextEditingController(text: '+2348030000001');
+  final TextEditingController _regionsController =
+      TextEditingController(text: 'Kaduna, Lagos');
+  final TextEditingController _cropsController =
+      TextEditingController(text: 'Maize, Rice');
+
+  @override
+  void dispose() {
+    _companyController.dispose();
+    _phoneController.dispose();
+    _regionsController.dispose();
+    _cropsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _completeOnboarding() async {
+    await widget.services.auth.signInWithCredentials(
+      username: _phoneController.text.trim(),
+      password: 'demo-password',
+      role: UserRole.buyer,
+      displayName: _companyController.text.trim(),
+    );
+
+    await widget.services.profiles.saveBuyerProfile(
+      BuyerProfile(
+        userId: widget.userId,
+        companyName: _companyController.text.trim(),
+        businessType: _businessType,
+        contactPhone: _phoneController.text.trim(),
+        regions: _regionsController.text
+            .split(',')
+            .map((String value) => value.trim())
+            .where((String value) => value.isNotEmpty)
+            .toList(),
+        preferredCrops: _cropsController.text
+            .split(',')
+            .map((String value) => value.trim())
+            .where((String value) => value.isNotEmpty)
+            .toList(),
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+    widget.onComplete();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +103,7 @@ class _BuyerOnboardingScreenState extends State<BuyerOnboardingScreen> {
                         _step += 1;
                       });
                     }
-                  : widget.onComplete,
+                  : _completeOnboarding,
               child: Text(_step < 3 ? 'Continue' : 'Complete Buyer Setup'),
             ),
           ],
@@ -65,46 +124,59 @@ class _BuyerOnboardingScreenState extends State<BuyerOnboardingScreen> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: const <Widget>[
-              Chip(label: Text('Processor')),
-              Chip(label: Text('Trader')),
-              Chip(label: Text('Exporter')),
-              Chip(label: Text('Retail Aggregator')),
-              Chip(label: Text('Institutional')),
-            ],
+            children: <String>[
+              'Processor',
+              'Trader',
+              'Exporter',
+              'Retail Aggregator',
+              'Institutional',
+            ]
+                .map(
+                  (String type) => ChoiceChip(
+                    label: Text(type),
+                    selected: _businessType == type,
+                    onSelected: (_) {
+                      setState(() {
+                        _businessType = type;
+                      });
+                    },
+                  ),
+                )
+                .toList(),
           ),
         ],
       );
     }
     if (_step == 1) {
       return ListView(
-        children: const <Widget>[
-          Text(
+        children: <Widget>[
+          const Text(
             'Business Verification',
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           TextField(
+            controller: _companyController,
             decoration: InputDecoration(
               labelText: 'Company Name',
               border: OutlineInputBorder(),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           TextField(
             decoration: InputDecoration(
               labelText: 'RC Number / Registration',
               border: OutlineInputBorder(),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           TextField(
             decoration: InputDecoration(
               labelText: 'Tax Identification Number',
               border: OutlineInputBorder(),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           TextField(
             decoration: InputDecoration(
               labelText: 'Business Address',
@@ -116,35 +188,37 @@ class _BuyerOnboardingScreenState extends State<BuyerOnboardingScreen> {
     }
     if (_step == 2) {
       return ListView(
-        children: const <Widget>[
-          Text(
+        children: <Widget>[
+          const Text(
             'Volume & Requirements',
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 10),
-          TextField(
+          const SizedBox(height: 10),
+          const TextField(
             decoration: InputDecoration(
               labelText: 'Monthly Purchase Volume (tons)',
               border: OutlineInputBorder(),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           TextField(
+            controller: _cropsController,
             decoration: InputDecoration(
               labelText: 'Preferred Crops',
               hintText: 'Maize, Rice, Cassava...',
               border: OutlineInputBorder(),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           TextField(
+            controller: _regionsController,
             decoration: InputDecoration(
               labelText: 'Regions of Operation',
               border: OutlineInputBorder(),
             ),
           ),
-          SizedBox(height: 8),
-          TextField(
+          const SizedBox(height: 8),
+          const TextField(
             decoration: InputDecoration(
               labelText: 'Quality Standards Required',
               border: OutlineInputBorder(),
@@ -154,28 +228,28 @@ class _BuyerOnboardingScreenState extends State<BuyerOnboardingScreen> {
       );
     }
     return ListView(
-      children: const <Widget>[
-        Text(
+      children: <Widget>[
+        const Text(
           'Team Members',
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
-        SizedBox(height: 10),
-        TextField(
+        const SizedBox(height: 10),
+        const TextField(
           decoration: InputDecoration(
             labelText: 'Purchasing Manager Name',
             border: OutlineInputBorder(),
           ),
         ),
-        SizedBox(height: 8),
-        TextField(
+        const SizedBox(height: 8),
+        const TextField(
           decoration: InputDecoration(
             labelText: 'Role & Permission',
             hintText: 'Bid only / Full order approval',
             border: OutlineInputBorder(),
           ),
         ),
-        SizedBox(height: 12),
-        Card(
+        const SizedBox(height: 12),
+        const Card(
           child: ListTile(
             title: Text('Ready to start sourcing'),
             subtitle: Text('You can now browse and bid on auctions'),

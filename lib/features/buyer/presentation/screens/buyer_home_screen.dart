@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 
-class BuyerHomeScreen extends StatefulWidget {
-  const BuyerHomeScreen({super.key, required this.onLogout});
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
 
+class BuyerHomeScreen extends StatefulWidget {
+  const BuyerHomeScreen({
+    super.key,
+    required this.services,
+    required this.buyerId,
+    required this.onLogout,
+  });
+
+  final AppServices services;
+  final String buyerId;
   final VoidCallback onLogout;
 
   @override
@@ -23,11 +33,27 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
     ];
 
     final List<Widget> pages = <Widget>[
-      const _BuyerDashboardTab(),
-      const _SourcingTab(),
-      const _OrdersTab(),
-      const _SuppliersTab(),
-      _FinanceTab(onLogout: widget.onLogout),
+      _BuyerDashboardTab(
+        services: widget.services,
+        buyerId: widget.buyerId,
+      ),
+      _SourcingTab(
+        services: widget.services,
+        buyerId: widget.buyerId,
+      ),
+      _OrdersTab(
+        services: widget.services,
+        buyerId: widget.buyerId,
+      ),
+      _SuppliersTab(
+        services: widget.services,
+        buyerId: widget.buyerId,
+      ),
+      _FinanceTab(
+        services: widget.services,
+        buyerId: widget.buyerId,
+        onLogout: widget.onLogout,
+      ),
     ];
 
     return Scaffold(
@@ -53,36 +79,81 @@ class _BuyerHomeScreenState extends State<BuyerHomeScreen> {
 }
 
 class _BuyerDashboardTab extends StatelessWidget {
-  const _BuyerDashboardTab();
+  const _BuyerDashboardTab({
+    required this.services,
+    required this.buyerId,
+  });
+
+  final AppServices services;
+  final String buyerId;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: const <Widget>[
-        Card(
-          child: ListTile(
-            title: Text('Sourcing Alerts'),
-            subtitle: Text('3 new auctions matching your preferences'),
-          ),
+      children: <Widget>[
+        StreamBuilder<List<Auction>>(
+          stream: services.auctions.watchAuctions(status: AuctionStatus.live),
+          builder: (BuildContext context, AsyncSnapshot<List<Auction>> snapshot) {
+            final int count = (snapshot.data ?? <Auction>[]).length;
+            return Card(
+              child: ListTile(
+                title: const Text('Sourcing Alerts'),
+                subtitle: Text('$count live auctions matching your filters'),
+              ),
+            );
+          },
         ),
-        Card(
-          child: ListTile(
-            title: Text('Active Bids'),
-            subtitle: Text('Auction #78901: Leading with N25,700 (20 bags)'),
-          ),
+        StreamBuilder<List<Bid>>(
+          stream: services.bids.watchBidsForBuyer(buyerId),
+          builder: (BuildContext context, AsyncSnapshot<List<Bid>> snapshot) {
+            final List<Bid> bids = snapshot.data ?? <Bid>[];
+            final Bid? topBid = bids.isEmpty ? null : bids.first;
+            return Card(
+              child: ListTile(
+                title: const Text('Active Bids'),
+                subtitle: Text(
+                  topBid == null
+                      ? 'No bids placed yet'
+                      : 'Auction ${topBid.auctionId}: N${topBid.pricePerUnit.toStringAsFixed(0)} (${topBid.quantity.toStringAsFixed(0)} bags)',
+                ),
+              ),
+            );
+          },
         ),
-        Card(
-          child: ListTile(
-            title: Text('Orders Pending Delivery'),
-            subtitle: Text('20 bags Maize from Chika\'s Farm • Delivery Jan 14'),
-          ),
+        StreamBuilder<List<Order>>(
+          stream: services.orders.watchOrdersForBuyer(buyerId),
+          builder: (BuildContext context, AsyncSnapshot<List<Order>> snapshot) {
+            final List<Order> inFlight = (snapshot.data ?? <Order>[])
+                .where((Order order) => order.status != OrderStatus.paymentReleased)
+                .toList();
+            return Card(
+              child: ListTile(
+                title: const Text('Orders Pending Delivery'),
+                subtitle: Text('${inFlight.length} orders in progress'),
+              ),
+            );
+          },
         ),
-        Card(
-          child: ListTile(
-            title: Text('Market Intelligence'),
-            subtitle: Text('Price drop on Maize in Kaduna'),
-          ),
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(buyerId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final WalletBalance balance = snapshot.data ??
+                WalletBalance(
+                  userId: buyerId,
+                  available: 0,
+                  inEscrow: 0,
+                  updatedAt: DateTime.now(),
+                );
+            return Card(
+              child: ListTile(
+                title: const Text('Market Intelligence'),
+                subtitle: Text(
+                  'Wallet available N${balance.available.toStringAsFixed(0)} • Escrow N${balance.inEscrow.toStringAsFixed(0)}',
+                ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -90,95 +161,151 @@ class _BuyerDashboardTab extends StatelessWidget {
 }
 
 class _SourcingTab extends StatelessWidget {
-  const _SourcingTab();
+  const _SourcingTab({
+    required this.services,
+    required this.buyerId,
+  });
+
+  final AppServices services;
+  final String buyerId;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: <Widget>[
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: const <Widget>[
-            Chip(label: Text('Crop: Maize')),
-            Chip(label: Text('Radius: 100km')),
-            Chip(label: Text('Quality: Grade A')),
-            Chip(label: Text('Verification: Agent')),
-            Chip(label: Text('Ending: Soonest')),
+    return StreamBuilder<List<Auction>>(
+      stream: services.auctions.watchAuctions(status: AuctionStatus.live),
+      builder: (BuildContext context, AsyncSnapshot<List<Auction>> snapshot) {
+        final List<Auction> auctions = snapshot.data ?? <Auction>[];
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: const <Widget>[
+                Chip(label: Text('Crop: Maize')),
+                Chip(label: Text('Radius: 100km')),
+                Chip(label: Text('Quality: Grade A')),
+                Chip(label: Text('Verification: Agent')),
+                Chip(label: Text('Ending: Soonest')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (auctions.isEmpty)
+              const Card(
+                child: ListTile(
+                  title: Text('No live auctions'),
+                  subtitle: Text('Check back shortly for new inventory'),
+                ),
+              )
+            else
+              ...auctions.map(
+                (Auction auction) => _AuctionListCard(
+                  auction: auction,
+                  services: services,
+                  buyerId: buyerId,
+                ),
+              ),
           ],
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        );
+      },
+    );
+  }
+}
+
+class _AuctionListCard extends StatelessWidget {
+  const _AuctionListCard({
+    required this.auction,
+    required this.services,
+    required this.buyerId,
+  });
+
+  final Auction auction;
+  final AppServices services;
+  final String buyerId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text('LIVE AUCTION', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(
+              '${auction.crop.toUpperCase()} - ${auction.quantity.toStringAsFixed(0)} bags',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            Text('Min bid: ${auction.minBidQuantity} bags'),
+            Text('Auction ID: ${auction.id}'),
+            const SizedBox(height: 10),
+            Row(
               children: <Widget>[
-                const Text(
-                  'ENDING IN 3:45:12',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => BuyerAuctionDetailsScreen(auction: auction),
+                        ),
+                      );
+                    },
+                    child: const Text('View Details'),
+                  ),
                 ),
-                const SizedBox(height: 6),
-                const Text(
-                  'MAIZE - GRADE A',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const Text('Kaduna • 120 bags • Agent verified'),
-                const Text('Current bid: N25,500/bag • 4 buyers bidding'),
-                const SizedBox(height: 10),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const BuyerAuctionDetailsScreen(),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () async {
+                      const double price = 25700;
+                      final double qty = auction.minBidQuantity.toDouble();
+                      await services.bids.placeBid(
+                        BidDraft(
+                          auctionId: auction.id,
+                          buyerId: buyerId,
+                          pricePerUnit: price,
+                          quantity: qty,
+                        ),
+                      );
+                      await services.wallet.holdInEscrow(
+                        userId: buyerId,
+                        amount: price * qty,
+                        reference: 'bid-${auction.id}',
+                      );
+                      if (!context.mounted) {
+                        return;
+                      }
+                      showDialog<void>(
+                        context: context,
+                        builder: (BuildContext context) => AlertDialog(
+                          title: const Text('Bid Submitted'),
+                          content: Text('N${(price * qty).toStringAsFixed(0)} reserved from wallet.'),
+                          actions: <Widget>[
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('OK'),
                             ),
-                          );
-                        },
-                        child: const Text('View Details'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () {
-                          _showBidConfirmation(context);
-                        },
-                        child: const Text('Place Bid'),
-                      ),
-                    ),
-                  ],
+                          ],
+                        ),
+                      );
+                    },
+                    child: const Text('Place Bid'),
+                  ),
                 ),
               ],
             ),
-          ),
+          ],
         ),
-      ],
-    );
-  }
-
-  void _showBidConfirmation(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('Bid Submitted'),
-        content: const Text('N255,000 will be reserved from your wallet.'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
       ),
     );
   }
 }
 
 class BuyerAuctionDetailsScreen extends StatelessWidget {
-  const BuyerAuctionDetailsScreen({super.key});
+  const BuyerAuctionDetailsScreen({super.key, required this.auction});
+
+  final Auction auction;
 
   @override
   Widget build(BuildContext context) {
@@ -186,8 +313,8 @@ class BuyerAuctionDetailsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Auction Details')),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: const <Widget>[
-          Card(
+        children: <Widget>[
+          const Card(
             child: ListTile(
               title: Text('Photo Carousel'),
               subtitle: Text('Verified inventory photos placeholder'),
@@ -195,17 +322,16 @@ class BuyerAuctionDetailsScreen extends StatelessWidget {
           ),
           Card(
             child: ListTile(
-              title: Text('Farmer Profile'),
-              subtitle: Text('Rating: 4.8/5 • 24 successful auctions'),
+              title: const Text('Auction Summary'),
+              subtitle: Text(
+                'Auction ID: ${auction.id}\n'
+                'Crop: ${auction.crop}\n'
+                'Quantity: ${auction.quantity.toStringAsFixed(0)} bags\n'
+                'Min bid quantity: ${auction.minBidQuantity}',
+              ),
             ),
           ),
-          Card(
-            child: ListTile(
-              title: Text('Quality Metrics'),
-              subtitle: Text('Grade A • Moisture 12% • Foreign matter <1%'),
-            ),
-          ),
-          Card(
+          const Card(
             child: ListTile(
               title: Text('Bid Panel'),
               subtitle: Text('Your bid: N25,700/bag • Quantity: 10 bags'),
@@ -218,42 +344,72 @@ class BuyerAuctionDetailsScreen extends StatelessWidget {
 }
 
 class _OrdersTab extends StatelessWidget {
-  const _OrdersTab();
+  const _OrdersTab({
+    required this.services,
+    required this.buyerId,
+  });
+
+  final AppServices services;
+  final String buyerId;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: <Widget>[
-        const Card(
-          child: ListTile(
-            title: Text('ORDER #FC-ORD-78901'),
-            subtitle: Text(
-              'Status: In Transit\n'
-              '1. Auction won\n'
-              '2. Payment reserved\n'
-              '3. Logistics arranged\n'
-              '4. In transit',
-            ),
-          ),
-        ),
-        FilledButton(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const BuyerQualityCheckScreen(),
+    return StreamBuilder<List<Order>>(
+      stream: services.orders.watchOrdersForBuyer(buyerId),
+      builder: (BuildContext context, AsyncSnapshot<List<Order>> snapshot) {
+        final List<Order> orders = snapshot.data ?? <Order>[];
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            if (orders.isEmpty)
+              const Card(
+                child: ListTile(
+                  title: Text('No orders yet'),
+                  subtitle: Text('Won auctions will appear here.'),
+                ),
+              )
+            else
+              ...orders.map(
+                (Order order) => Card(
+                  child: ListTile(
+                    title: Text('ORDER ${order.id}'),
+                    subtitle: Text(
+                      'Status: ${order.status.name}\n'
+                      'Quantity: ${order.quantity.toStringAsFixed(0)}\n'
+                      'Total: N${order.totalValue.toStringAsFixed(0)}',
+                    ),
+                    trailing: FilledButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => BuyerQualityCheckScreen(
+                              services: services,
+                              order: order,
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Text('Quality Check'),
+                    ),
+                  ),
+                ),
               ),
-            );
-          },
-          child: const Text('Open Quality Check'),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
 
 class BuyerQualityCheckScreen extends StatelessWidget {
-  const BuyerQualityCheckScreen({super.key});
+  const BuyerQualityCheckScreen({
+    super.key,
+    required this.services,
+    required this.order,
+  });
+
+  final AppServices services;
+  final Order order;
 
   @override
   Widget build(BuildContext context) {
@@ -261,20 +417,41 @@ class BuyerQualityCheckScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Quality Check & Payment')),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: const <Widget>[
-          Card(
-            child: ListTile(
-              title: Text('Accept & Release Payment'),
-              subtitle: Text('Rate quality and confirm acceptance'),
-            ),
+        children: <Widget>[
+          FilledButton(
+            onPressed: () async {
+              await services.orders.updateOrderStatus(
+                orderId: order.id,
+                status: OrderStatus.paymentReleased,
+              );
+              await services.wallet.releaseFromEscrow(
+                userId: order.buyerId,
+                amount: order.totalValue,
+                reference: 'order-${order.id}-release',
+              );
+              if (!context.mounted) {
+                return;
+              }
+              Navigator.of(context).pop();
+            },
+            child: const Text('Accept & Release Payment'),
           ),
-          Card(
-            child: ListTile(
-              title: Text('Raise Issue'),
-              subtitle: Text('Short quantity / poor quality / damaged goods'),
-            ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              await services.orders.updateOrderStatus(
+                orderId: order.id,
+                status: OrderStatus.disputed,
+              );
+              if (!context.mounted) {
+                return;
+              }
+              Navigator.of(context).pop();
+            },
+            child: const Text('Raise Issue'),
           ),
-          Card(
+          const SizedBox(height: 8),
+          const Card(
             child: ListTile(
               title: Text('Request Extension'),
               subtitle: Text('Need 24 hours more for testing'),
@@ -287,39 +464,59 @@ class BuyerQualityCheckScreen extends StatelessWidget {
 }
 
 class _SuppliersTab extends StatelessWidget {
-  const _SuppliersTab();
+  const _SuppliersTab({
+    required this.services,
+    required this.buyerId,
+  });
+
+  final AppServices services;
+  final String buyerId;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: const <Widget>[
-        Card(
-          child: ListTile(
-            title: Text('My Bids - Active'),
-            subtitle: Text('Auction #78901 • Leading • N25,700/bag'),
-          ),
-        ),
-        Card(
-          child: ListTile(
-            title: Text('Won Auctions'),
-            subtitle: Text('20 bags Maize @ N25,500 • Payment held in escrow'),
-          ),
-        ),
-        Card(
-          child: ListTile(
-            title: Text('Supplier Scorecard'),
-            subtitle: Text('Quality consistency, on-time delivery, dispute history'),
-          ),
-        ),
-      ],
+    return StreamBuilder<List<Bid>>(
+      stream: services.bids.watchBidsForBuyer(buyerId),
+      builder: (BuildContext context, AsyncSnapshot<List<Bid>> snapshot) {
+        final List<Bid> bids = snapshot.data ?? <Bid>[];
+        final int active = bids.where((Bid bid) => bid.status == BidStatus.active).length;
+        final int won = bids.where((Bid bid) => bid.status == BidStatus.won).length;
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            Card(
+              child: ListTile(
+                title: const Text('My Bids - Active'),
+                subtitle: Text('$active active bids'),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                title: const Text('Won Auctions'),
+                subtitle: Text('$won won bids'),
+              ),
+            ),
+            const Card(
+              child: ListTile(
+                title: Text('Supplier Scorecard'),
+                subtitle: Text('Quality consistency, on-time delivery, dispute history'),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 class _FinanceTab extends StatelessWidget {
-  const _FinanceTab({required this.onLogout});
+  const _FinanceTab({
+    required this.services,
+    required this.buyerId,
+    required this.onLogout,
+  });
 
+  final AppServices services;
+  final String buyerId;
   final VoidCallback onLogout;
 
   @override
@@ -327,23 +524,40 @@ class _FinanceTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
-        const Card(
-          child: ListTile(
-            title: Text('Spend Analysis'),
-            subtitle: Text('By crop, month, and supplier'),
-          ),
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(buyerId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final WalletBalance balance = snapshot.data ??
+                WalletBalance(
+                  userId: buyerId,
+                  available: 0,
+                  inEscrow: 0,
+                  updatedAt: DateTime.now(),
+                );
+            return Card(
+              child: ListTile(
+                title: const Text('Wallet Balance'),
+                subtitle: Text(
+                  'Available N${balance.available.toStringAsFixed(0)} • Escrow N${balance.inEscrow.toStringAsFixed(0)}',
+                ),
+              ),
+            );
+          },
         ),
-        const Card(
-          child: ListTile(
-            title: Text('Price Benchmarking'),
-            subtitle: Text('Compared to market average and historical spend'),
-          ),
-        ),
-        const Card(
-          child: ListTile(
-            title: Text('Savings Calculator'),
-            subtitle: Text('Savings vs traditional sourcing channels'),
-          ),
+        StreamBuilder<List<WalletTransaction>>(
+          stream: services.wallet.watchTransactions(buyerId),
+          builder: (
+            BuildContext context,
+            AsyncSnapshot<List<WalletTransaction>> snapshot,
+          ) {
+            final int count = (snapshot.data ?? <WalletTransaction>[]).length;
+            return Card(
+              child: ListTile(
+                title: const Text('Transactions'),
+                subtitle: Text('$count records'),
+              ),
+            );
+          },
         ),
         FilledButton(
           onPressed: onLogout,

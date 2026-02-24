@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
+
 class AgentOnboardingScreen extends StatefulWidget {
   const AgentOnboardingScreen({
     super.key,
+    required this.services,
+    required this.userId,
     required this.onBack,
     required this.onComplete,
   });
 
+  final AppServices services;
+  final String userId;
   final VoidCallback onBack;
   final VoidCallback onComplete;
 
@@ -36,7 +43,7 @@ class _AgentOnboardingScreenState extends State<AgentOnboardingScreen> {
             });
             return;
           }
-          widget.onComplete();
+          _completeOnboarding();
         },
         onStepCancel: () {
           if (_step == 0) {
@@ -121,5 +128,24 @@ class _AgentOnboardingScreenState extends State<AgentOnboardingScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _completeOnboarding() async {
+    await widget.services.profiles.saveAgentProfile(
+      AgentProfile(
+        userId: widget.userId,
+        fullName: 'Tunde A.',
+        agentId: 'FC-AGENT-0092',
+        coverageArea: const <String>['Kaduna North', 'Kaduna South'],
+        vehicleType: 'Bike',
+        rating: 4.9,
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+    widget.onComplete();
   }
 }

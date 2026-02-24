@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
 import '../../domain/verification_method.dart';
 import 'verification_status_screen.dart';
 
 class HarvestFlowScreen extends StatefulWidget {
-  const HarvestFlowScreen({super.key});
+  const HarvestFlowScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+  });
+
+  final AppServices services;
+  final String farmerId;
 
   @override
   State<HarvestFlowScreen> createState() => _HarvestFlowScreenState();
@@ -12,8 +21,59 @@ class HarvestFlowScreen extends StatefulWidget {
 
 class _HarvestFlowScreenState extends State<HarvestFlowScreen> {
   int _step = 0;
+  String _crop = 'Maize';
+  String _storage = 'On-farm storage';
   int _quantity = 120;
   VerificationMethod _method = VerificationMethod.agent;
+
+  VerificationType get _verificationType => switch (_method) {
+        VerificationMethod.photo => VerificationType.photo,
+        VerificationMethod.agent => VerificationType.agent,
+        VerificationMethod.warehouse => VerificationType.warehouse,
+      };
+
+  Future<void> _submitForVerification() async {
+    final InventoryItem item = await widget.services.inventory.declareHarvest(
+      farmerId: widget.farmerId,
+      crop: _crop,
+      quantity: _quantity.toDouble(),
+      unit: 'bags',
+      storageLocation: _storage,
+      harvestDate: DateTime.now(),
+    );
+
+    await widget.services.inventory.updateStatus(
+      inventoryId: item.id,
+      status: InventoryStatus.underReview,
+      verificationType: _verificationType,
+    );
+
+    await widget.services.notifications.send(
+      FarmNotification(
+        id: 'notif-${DateTime.now().microsecondsSinceEpoch}',
+        userId: widget.farmerId,
+        type: FarmNotificationType.verificationUpdate,
+        title: 'Verification submitted',
+        body: 'Harvest declaration for $_crop has been submitted for review.',
+        createdAt: DateTime.now(),
+        isRead: false,
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => VerificationStatusScreen(
+          services: widget.services,
+          farmerId: widget.farmerId,
+          inventoryId: item.id,
+          method: _method,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,11 +88,7 @@ class _HarvestFlowScreenState extends State<HarvestFlowScreen> {
             });
             return;
           }
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute<void>(
-              builder: (_) => VerificationStatusScreen(method: _method),
-            ),
-          );
+          _submitForVerification();
         },
         onStepCancel: () {
           if (_step == 0) {
@@ -63,12 +119,20 @@ class _HarvestFlowScreenState extends State<HarvestFlowScreen> {
             title: const Text('What have you harvested?'),
             content: Column(
               children: <Widget>[
-                const TextField(
-                  decoration: InputDecoration(
+                TextField(
+                  decoration: const InputDecoration(
                     labelText: 'Crop',
                     hintText: 'Maize, Rice, Cassava...',
                     border: OutlineInputBorder(),
                   ),
+                  onChanged: (String value) {
+                    if (value.trim().isEmpty) {
+                      return;
+                    }
+                    setState(() {
+                      _crop = value.trim();
+                    });
+                  },
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -89,12 +153,20 @@ class _HarvestFlowScreenState extends State<HarvestFlowScreen> {
                   },
                 ),
                 const SizedBox(height: 8),
-                const TextField(
-                  decoration: InputDecoration(
+                TextField(
+                  decoration: const InputDecoration(
                     labelText: 'Current Storage',
                     hintText: 'On-farm / shed / warehouse',
                     border: OutlineInputBorder(),
                   ),
+                  onChanged: (String value) {
+                    if (value.trim().isEmpty) {
+                      return;
+                    }
+                    setState(() {
+                      _storage = value.trim();
+                    });
+                  },
                 ),
               ],
             ),

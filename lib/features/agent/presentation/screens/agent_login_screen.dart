@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
+
 class AgentLoginScreen extends StatelessWidget {
   const AgentLoginScreen({
     super.key,
+    required this.services,
+    required this.userId,
     required this.onBack,
     required this.onLogin,
     required this.onQuickEnter,
   });
 
+  final AppServices services;
+  final String userId;
   final VoidCallback onBack;
   final VoidCallback onLogin;
   final VoidCallback onQuickEnter;
@@ -43,12 +50,28 @@ class AgentLoginScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: onLogin,
+              onPressed: () async {
+                await services.auth.signInWithCredentials(
+                  username: userId,
+                  password: 'demo-password',
+                  role: UserRole.agent,
+                  displayName: 'Tunde A.',
+                );
+                onLogin();
+              },
               child: const Text('Login & Start Onboarding'),
             ),
             const SizedBox(height: 8),
             OutlinedButton(
-              onPressed: onQuickEnter,
+              onPressed: () async {
+                await services.auth.signInWithCredentials(
+                  username: userId,
+                  password: 'demo-password',
+                  role: UserRole.agent,
+                  displayName: 'Tunde A.',
+                );
+                onQuickEnter();
+              },
               child: const Text('Quick Enter Existing Agent'),
             ),
             const SizedBox(height: 8),

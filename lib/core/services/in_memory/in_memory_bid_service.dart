@@ -39,6 +39,14 @@ class InMemoryBidService implements BidService {
   }
 
   @override
+  Stream<List<Bid>> watchAllBids() async* {
+    yield _bids.values.toList()
+      ..sort((Bid a, Bid b) => b.createdAt.compareTo(a.createdAt));
+    yield* _controller.stream.map((List<Bid> data) => data.toList()
+      ..sort((Bid a, Bid b) => b.createdAt.compareTo(a.createdAt)));
+  }
+
+  @override
   Stream<List<Bid>> watchBidsForAuction(String auctionId) async* {
     yield _forAuction(auctionId);
     yield* _controller.stream.map((_) => _forAuction(auctionId));

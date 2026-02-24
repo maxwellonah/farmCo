@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
+
 class AdminLoginScreen extends StatelessWidget {
   const AdminLoginScreen({
     super.key,
+    required this.services,
+    required this.userId,
     required this.onBack,
     required this.onLogin,
   });
 
+  final AppServices services;
+  final String userId;
   final VoidCallback onBack;
   final VoidCallback onLogin;
 
@@ -49,7 +56,15 @@ class AdminLoginScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: onLogin,
+              onPressed: () async {
+                await services.auth.signInWithCredentials(
+                  username: userId,
+                  password: 'demo-password',
+                  role: UserRole.admin,
+                  displayName: 'Platform Admin',
+                );
+                onLogin();
+              },
               child: const Text('Login to Admin Dashboard'),
             ),
           ],

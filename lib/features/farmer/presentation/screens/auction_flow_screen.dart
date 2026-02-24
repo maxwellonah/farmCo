@@ -1,7 +1,23 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
+
 class AuctionFlowScreen extends StatefulWidget {
-  const AuctionFlowScreen({super.key});
+  const AuctionFlowScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+    required this.inventoryId,
+    required this.crop,
+    required this.quantity,
+  });
+
+  final AppServices services;
+  final String farmerId;
+  final String inventoryId;
+  final String crop;
+  final double quantity;
 
   @override
   State<AuctionFlowScreen> createState() => _AuctionFlowScreenState();
@@ -10,7 +26,60 @@ class AuctionFlowScreen extends StatefulWidget {
 class _AuctionFlowScreenState extends State<AuctionFlowScreen> {
   int _step = 0;
   int _durationHours = 24;
+  int _minBidQuantity = 10;
   bool _agreed = true;
+  late double _sellQuantity;
+
+  @override
+  void initState() {
+    super.initState();
+    _sellQuantity = widget.quantity > 0 ? widget.quantity : 10;
+  }
+
+  Future<void> _startAuction() async {
+    final Auction auction = await widget.services.auctions.createAuction(
+      AuctionDraft(
+        farmerId: widget.farmerId,
+        inventoryId: widget.inventoryId,
+        crop: widget.crop,
+        quantity: _sellQuantity,
+        minBidQuantity: _minBidQuantity,
+        durationHours: _durationHours,
+        reservePricePerUnit: 24500,
+      ),
+    );
+
+    await widget.services.inventory.updateStatus(
+      inventoryId: widget.inventoryId,
+      status: InventoryStatus.inAuction,
+    );
+
+    await widget.services.notifications.send(
+      FarmNotification(
+        id: 'notif-${DateTime.now().microsecondsSinceEpoch}',
+        userId: widget.farmerId,
+        type: FarmNotificationType.auctionCompleted,
+        title: 'Auction Started',
+        body: 'Auction ${auction.id} is now live.',
+        createdAt: DateTime.now(),
+        isRead: false,
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LiveAuctionScreen(
+          services: widget.services,
+          auctionId: auction.id,
+          farmerId: widget.farmerId,
+          inventoryId: widget.inventoryId,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,9 +94,7 @@ class _AuctionFlowScreenState extends State<AuctionFlowScreen> {
             });
             return;
           }
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const LiveAuctionScreen()),
-          );
+          _startAuction();
         },
         onStepCancel: () {
           if (_step == 0) {
@@ -54,13 +121,31 @@ class _AuctionFlowScreenState extends State<AuctionFlowScreen> {
           );
         },
         steps: <Step>[
-          const Step(
-            title: Text('Select Verified Inventory'),
-            content: Card(
-              child: ListTile(
-                title: Text('Maize - 120 bags'),
-                subtitle: Text('Grade A • Moisture 12% • Verified Jan 12'),
-              ),
+          Step(
+            title: const Text('Select Verified Inventory'),
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Card(
+                  child: ListTile(
+                    title: Text('${widget.crop} - ${widget.quantity.toStringAsFixed(0)} bags'),
+                    subtitle: const Text('Grade A • Moisture 12% • Verified stock'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text('Sell quantity: ${_sellQuantity.toStringAsFixed(0)} bags'),
+                Slider(
+                  value: _sellQuantity,
+                  min: 1,
+                  max: widget.quantity > 1 ? widget.quantity : 1,
+                  divisions: widget.quantity >= 2 ? widget.quantity.toInt() - 1 : null,
+                  onChanged: (double value) {
+                    setState(() {
+                      _sellQuantity = value;
+                    });
+                  },
+                ),
+              ],
             ),
           ),
           Step(
@@ -87,8 +172,24 @@ class _AuctionFlowScreenState extends State<AuctionFlowScreen> {
                       .toList(),
                 ),
                 const SizedBox(height: 12),
-                const Text('Minimum bid quantity: 10 bags'),
-                const Text('Reserve price: Optional'),
+                TextField(
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Minimum bid quantity',
+                    border: const OutlineInputBorder(),
+                    hintText: _minBidQuantity.toString(),
+                  ),
+                  onChanged: (String value) {
+                    final int? parsed = int.tryParse(value);
+                    if (parsed == null || parsed < 1) {
+                      return;
+                    }
+                    setState(() {
+                      _minBidQuantity = parsed;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
                 Text('Selected duration: $_durationHours hours'),
               ],
             ),
@@ -129,7 +230,18 @@ class _AuctionFlowScreenState extends State<AuctionFlowScreen> {
 }
 
 class LiveAuctionScreen extends StatelessWidget {
-  const LiveAuctionScreen({super.key});
+  const LiveAuctionScreen({
+    super.key,
+    required this.services,
+    required this.auctionId,
+    required this.farmerId,
+    required this.inventoryId,
+  });
+
+  final AppServices services;
+  final String auctionId;
+  final String farmerId;
+  final String inventoryId;
 
   @override
   Widget build(BuildContext context) {
@@ -138,29 +250,60 @@ class LiveAuctionScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
-          const Card(
-            child: ListTile(
-              title: Text('Auction #FC-AU-78901 • LIVE'),
-              subtitle: Text('Countdown: 23:45:12'),
-            ),
+          StreamBuilder<List<Auction>>(
+            stream: services.auctions.watchAuctions(),
+            builder: (BuildContext context, AsyncSnapshot<List<Auction>> snapshot) {
+              final Auction? auction = (snapshot.data ?? <Auction>[])
+                  .where((Auction item) => item.id == auctionId)
+                  .cast<Auction?>()
+                  .firstOrNull;
+              return Card(
+                child: ListTile(
+                  title: Text('${auction?.id ?? auctionId} • ${auction?.status.name ?? 'live'}'),
+                  subtitle: Text('Ends: ${auction?.endAt.toLocal() ?? '-'}'),
+                ),
+              );
+            },
           ),
-          const Card(
-            child: ListTile(
-              title: Text('Current highest bid'),
-              subtitle: Text('N25,700/bag • 4 buyers active'),
-            ),
-          ),
-          const Card(
-            child: ListTile(
-              title: Text('Allocation Preview'),
-              subtitle: Text('Green Mills 20 • Abdul Trader 10 • Prime Foods 50'),
-            ),
+          StreamBuilder<List<Bid>>(
+            stream: services.bids.watchBidsForAuction(auctionId),
+            builder: (BuildContext context, AsyncSnapshot<List<Bid>> snapshot) {
+              final List<Bid> bids = snapshot.data ?? <Bid>[];
+              final Bid? topBid = bids.isEmpty
+                  ? null
+                  : bids.reduce((Bid a, Bid b) => a.pricePerUnit > b.pricePerUnit ? a : b);
+              return Card(
+                child: ListTile(
+                  title: const Text('Current highest bid'),
+                  subtitle: Text(
+                    topBid == null
+                        ? 'No bids yet'
+                        : 'N${topBid.pricePerUnit.toStringAsFixed(0)}/bag by ${topBid.buyerId}',
+                  ),
+                ),
+              );
+            },
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
+              await services.auctions.updateStatus(
+                auctionId: auctionId,
+                status: AuctionStatus.completed,
+              );
+              await services.inventory.updateStatus(
+                inventoryId: inventoryId,
+                status: InventoryStatus.sold,
+              );
+              if (!context.mounted) {
+                return;
+              }
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const AuctionCompletedScreen(),
+                  builder: (_) => AuctionCompletedScreen(
+                    services: services,
+                    auctionId: auctionId,
+                    farmerId: farmerId,
+                  ),
                 ),
               );
             },
@@ -173,56 +316,89 @@ class LiveAuctionScreen extends StatelessWidget {
 }
 
 class AuctionCompletedScreen extends StatelessWidget {
-  const AuctionCompletedScreen({super.key});
+  const AuctionCompletedScreen({
+    super.key,
+    required this.services,
+    required this.auctionId,
+    required this.farmerId,
+  });
+
+  final AppServices services;
+  final String auctionId;
+  final String farmerId;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Auction Completed')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: <Widget>[
-          const Icon(Icons.emoji_events_outlined, size: 70, color: Colors.amber),
-          const SizedBox(height: 10),
-          const Text(
-            'Auction Successful!',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Total Sale Value: N2,040,000\n'
-                'Average Price: N25,500/bag\n'
-                'Platform Fee: N61,200\n'
-                'Your Earnings: N1,978,800',
+      body: StreamBuilder<List<Bid>>(
+        stream: services.bids.watchBidsForAuction(auctionId),
+        builder: (BuildContext context, AsyncSnapshot<List<Bid>> snapshot) {
+          final List<Bid> bids = snapshot.data ?? <Bid>[];
+          final double totalValue = bids.fold<double>(
+            0,
+            (double prev, Bid bid) => prev + (bid.pricePerUnit * bid.quantity),
+          );
+          final double fee = totalValue * 0.03;
+          final double earnings = totalValue - fee;
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              const Icon(Icons.emoji_events_outlined, size: 70, color: Colors.amber),
+              const SizedBox(height: 10),
+              const Text(
+                'Auction Successful!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               ),
-            ),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const LogisticsScreen(),
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'Total Sale Value: N${totalValue.toStringAsFixed(0)}\n'
+                    'Platform Fee: N${fee.toStringAsFixed(0)}\n'
+                    'Your Earnings: N${earnings.toStringAsFixed(0)}',
+                  ),
                 ),
-              );
-            },
-            child: const Text('Arrange Logistics with Buyers'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const PaymentReceivedScreen(),
-                ),
-              );
-            },
-            child: const Text('View Payment Schedule'),
-          ),
-        ],
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const LogisticsScreen(),
+                    ),
+                  );
+                },
+                child: const Text('Arrange Logistics with Buyers'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () async {
+                  await services.wallet.credit(
+                    userId: farmerId,
+                    amount: earnings,
+                    reference: 'auction-$auctionId-settlement',
+                  );
+                  if (!context.mounted) {
+                    return;
+                  }
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentReceivedScreen(
+                        services: services,
+                        farmerId: farmerId,
+                        amount: earnings,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('View Payment Schedule'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -246,12 +422,6 @@ class LogisticsScreen extends StatelessWidget {
           ),
           Card(
             child: ListTile(
-              title: Text('Abdul Trader - 10 bags @ N25,200'),
-              subtitle: Text('Location: Kano • Buyer pickup'),
-            ),
-          ),
-          Card(
-            child: ListTile(
               title: Text('Prime Foods - 50 bags @ N25,600'),
               subtitle: Text('Location: Kaduna • Farmer delivery'),
             ),
@@ -263,7 +433,16 @@ class LogisticsScreen extends StatelessWidget {
 }
 
 class PaymentReceivedScreen extends StatelessWidget {
-  const PaymentReceivedScreen({super.key});
+  const PaymentReceivedScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+    required this.amount,
+  });
+
+  final AppServices services;
+  final String farmerId;
+  final double amount;
 
   @override
   Widget build(BuildContext context) {
@@ -274,24 +453,32 @@ class PaymentReceivedScreen extends StatelessWidget {
         children: <Widget>[
           const Icon(Icons.payments_outlined, size: 72, color: Colors.green),
           const SizedBox(height: 10),
-          const Text(
-            'TOTAL CREDITED: N1,978,300',
+          Text(
+            'TOTAL CREDITED: N${amount.toStringAsFixed(0)}',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Sale value: N2,040,000\n'
-                'Platform fee: -N61,200\n'
-                'Verification: -N500\n'
-                'Transport: +N20,000\n'
-                'Withdrawal fee: -N500\n'
-                'Net: N1,978,300',
-              ),
-            ),
+          StreamBuilder<WalletBalance>(
+            stream: services.wallet.watchBalance(farmerId),
+            builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+              final WalletBalance balance = snapshot.data ??
+                  WalletBalance(
+                    userId: farmerId,
+                    available: 0,
+                    inEscrow: 0,
+                    updatedAt: DateTime.now(),
+                  );
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'Wallet available: N${balance.available.toStringAsFixed(0)}\n'
+                    'In escrow: N${balance.inEscrow.toStringAsFixed(0)}',
+                  ),
+                ),
+              );
+            },
           ),
           FilledButton(onPressed: () {}, child: const Text('Withdraw Now')),
           const SizedBox(height: 8),
@@ -300,4 +487,8 @@ class PaymentReceivedScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+extension _FirstOrNullExtension<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }

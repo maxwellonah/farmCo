@@ -1,6 +1,8 @@
 import '../domain/domain.dart';
 
 abstract class BidService {
+  Stream<List<Bid>> watchAllBids();
+
   Stream<List<Bid>> watchBidsForAuction(String auctionId);
 
   Stream<List<Bid>> watchBidsForBuyer(String buyerId);

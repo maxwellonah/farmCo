@@ -46,6 +46,14 @@ class InMemoryOrderService implements OrderService {
   }
 
   @override
+  Stream<List<Order>> watchAllOrders() async* {
+    yield _orders.values.toList()
+      ..sort((Order a, Order b) => b.createdAt.compareTo(a.createdAt));
+    yield* _controller.stream.map((List<Order> data) => data.toList()
+      ..sort((Order a, Order b) => b.createdAt.compareTo(a.createdAt)));
+  }
+
+  @override
   Stream<List<Order>> watchOrdersForBuyer(String buyerId) async* {
     yield _forBuyer(buyerId);
     yield* _controller.stream.map((_) => _forBuyer(buyerId));

@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 
-class AgentHomeScreen extends StatefulWidget {
-  const AgentHomeScreen({super.key, required this.onLogout});
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
 
+class AgentHomeScreen extends StatefulWidget {
+  const AgentHomeScreen({
+    super.key,
+    required this.services,
+    required this.agentId,
+    required this.onLogout,
+  });
+
+  final AppServices services;
+  final String agentId;
   final VoidCallback onLogout;
 
   @override
@@ -22,10 +32,22 @@ class _AgentHomeScreenState extends State<AgentHomeScreen> {
     ];
 
     final List<Widget> pages = <Widget>[
-      const _AgentDashboardTab(),
-      const _AgentTasksTab(),
-      const _AssistedRegistrationTab(),
-      _AgentEarningsTab(onLogout: widget.onLogout),
+      _AgentDashboardTab(
+        services: widget.services,
+        agentId: widget.agentId,
+      ),
+      _AgentTasksTab(
+        services: widget.services,
+        agentId: widget.agentId,
+      ),
+      _AssistedRegistrationTab(
+        services: widget.services,
+      ),
+      _AgentEarningsTab(
+        services: widget.services,
+        agentId: widget.agentId,
+        onLogout: widget.onLogout,
+      ),
     ];
 
     return Scaffold(
@@ -50,43 +72,67 @@ class _AgentHomeScreenState extends State<AgentHomeScreen> {
 }
 
 class _AgentDashboardTab extends StatelessWidget {
-  const _AgentDashboardTab();
+  const _AgentDashboardTab({
+    required this.services,
+    required this.agentId,
+  });
+
+  final AppServices services;
+  final String agentId;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
-        const Card(
-          child: ListTile(
-            title: Text('Today\'s Earnings'),
-            subtitle: Text('N3,500'),
-          ),
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(agentId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final double available = snapshot.data?.available ?? 0;
+            return Card(
+              child: ListTile(
+                title: const Text('Today\'s Earnings'),
+                subtitle: Text('N${available.toStringAsFixed(0)}'),
+              ),
+            );
+          },
         ),
-        const Card(
-          child: ListTile(
-            title: Text('Tasks Completed'),
-            subtitle: Text('7/10 • Rating 4.9/5'),
-          ),
-        ),
-        const Card(
-          child: ListTile(
-            title: Text('Pending Tasks'),
-            subtitle: Text('3 tasks in queue'),
-          ),
+        StreamBuilder<List<InventoryItem>>(
+          stream: services.inventory.watchAllInventory(),
+          builder: (
+            BuildContext context,
+            AsyncSnapshot<List<InventoryItem>> snapshot,
+          ) {
+            final List<InventoryItem> all = snapshot.data ?? <InventoryItem>[];
+            final int pending = all
+                .where((InventoryItem item) => item.status == InventoryStatus.underReview)
+                .length;
+            final int verified = all
+                .where((InventoryItem item) => item.status == InventoryStatus.verifiedReady)
+                .length;
+            return Card(
+              child: ListTile(
+                title: const Text('Verification Metrics'),
+                subtitle: Text('Pending tasks: $pending • Verified today: $verified'),
+              ),
+            );
+          },
         ),
         Card(
           child: InkWell(
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const AgentTaskExecutionScreen(),
+                  builder: (_) => AgentTaskExecutionScreen(
+                    services: services,
+                    agentId: agentId,
+                  ),
                 ),
               );
             },
             child: const ListTile(
               title: Text('Task Map View'),
-              subtitle: Text('Open interactive task execution flow'),
+              subtitle: Text('Open task execution flow'),
               trailing: Icon(Icons.chevron_right),
             ),
           ),
@@ -97,36 +143,78 @@ class _AgentDashboardTab extends StatelessWidget {
 }
 
 class _AgentTasksTab extends StatelessWidget {
-  const _AgentTasksTab();
+  const _AgentTasksTab({
+    required this.services,
+    required this.agentId,
+  });
+
+  final AppServices services;
+  final String agentId;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: <Widget>[
-        const Card(
-          child: ListTile(
-            title: Text('VERIFICATION TASK #VT-78901'),
-            subtitle: Text('Farmer: Chika N. • Crop: Maize • 120 bags • Fee N500'),
-          ),
-        ),
-        FilledButton(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentTaskExecutionScreen(),
+    return StreamBuilder<List<InventoryItem>>(
+      stream: services.inventory.watchAllInventory(),
+      builder: (BuildContext context, AsyncSnapshot<List<InventoryItem>> snapshot) {
+        final List<InventoryItem> tasks = (snapshot.data ?? <InventoryItem>[])
+            .where((InventoryItem item) => item.status == InventoryStatus.underReview)
+            .toList();
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            if (tasks.isEmpty)
+              const Card(
+                child: ListTile(
+                  title: Text('No pending verification tasks'),
+                  subtitle: Text('New tasks will appear here.'),
+                ),
+              )
+            else
+              ...tasks.map(
+                (InventoryItem item) => Card(
+                  child: ListTile(
+                    title: Text('TASK ${item.id}'),
+                    subtitle: Text(
+                      'Farmer: ${item.farmerId} • Crop: ${item.crop} • Qty: ${item.quantity.toStringAsFixed(0)}',
+                    ),
+                    trailing: FilledButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => AgentTaskExecutionScreen(
+                              services: services,
+                              agentId: agentId,
+                              taskInventoryId: item.id,
+                              farmerId: item.farmerId,
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Text('Accept'),
+                    ),
+                  ),
+                ),
               ),
-            );
-          },
-          child: const Text('Accept Task & Start'),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
 
 class AgentTaskExecutionScreen extends StatefulWidget {
-  const AgentTaskExecutionScreen({super.key});
+  const AgentTaskExecutionScreen({
+    super.key,
+    required this.services,
+    required this.agentId,
+    this.taskInventoryId,
+    this.farmerId,
+  });
+
+  final AppServices services;
+  final String agentId;
+  final String? taskInventoryId;
+  final String? farmerId;
 
   @override
   State<AgentTaskExecutionScreen> createState() => _AgentTaskExecutionScreenState();
@@ -134,6 +222,54 @@ class AgentTaskExecutionScreen extends StatefulWidget {
 
 class _AgentTaskExecutionScreenState extends State<AgentTaskExecutionScreen> {
   int _step = 0;
+
+  Future<void> _completeTask() async {
+    if (widget.taskInventoryId != null) {
+      await widget.services.inventory.updateStatus(
+        inventoryId: widget.taskInventoryId!,
+        status: InventoryStatus.verifiedReady,
+        verificationType: VerificationType.agent,
+      );
+    }
+    await widget.services.wallet.credit(
+      userId: widget.agentId,
+      amount: 500,
+      reference: 'verification-task-${widget.taskInventoryId ?? 'manual'}',
+    );
+    if (widget.farmerId != null) {
+      await widget.services.notifications.send(
+        FarmNotification(
+          id: 'notif-${DateTime.now().microsecondsSinceEpoch}',
+          userId: widget.farmerId!,
+          type: FarmNotificationType.verificationUpdate,
+          title: 'Agent verification complete',
+          body: 'Your inventory has been verified by an agent.',
+          createdAt: DateTime.now(),
+          isRead: false,
+        ),
+      );
+    }
+
+    if (!mounted) {
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('Certificate Generated'),
+        content: const Text('Certificate submitted to platform.'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pop();
+            },
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -148,22 +284,7 @@ class _AgentTaskExecutionScreenState extends State<AgentTaskExecutionScreen> {
             });
             return;
           }
-          showDialog<void>(
-            context: context,
-            builder: (BuildContext context) => AlertDialog(
-              title: const Text('Certificate Generated'),
-              content: const Text('Certificate #FC-VER-235678 submitted to platform.'),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('Done'),
-                ),
-              ],
-            ),
-          );
+          _completeTask();
         },
         onStepCancel: () {
           if (_step == 0) {
@@ -181,7 +302,7 @@ class _AgentTaskExecutionScreenState extends State<AgentTaskExecutionScreen> {
           ),
           Step(
             title: Text('Navigation to Farm'),
-            content: Text('Google Maps/OSM route, ETA tracking, contact farmer button.'),
+            content: Text('Route, ETA tracking, contact farmer button.'),
           ),
           Step(
             title: Text('Verification Checklist'),
@@ -207,7 +328,9 @@ class _AgentTaskExecutionScreenState extends State<AgentTaskExecutionScreen> {
 }
 
 class _AssistedRegistrationTab extends StatelessWidget {
-  const _AssistedRegistrationTab();
+  const _AssistedRegistrationTab({required this.services});
+
+  final AppServices services;
 
   @override
   Widget build(BuildContext context) {
@@ -289,8 +412,14 @@ class _AssistedRegistrationFlowScreenState extends State<AssistedRegistrationFlo
 }
 
 class _AgentEarningsTab extends StatelessWidget {
-  const _AgentEarningsTab({required this.onLogout});
+  const _AgentEarningsTab({
+    required this.services,
+    required this.agentId,
+    required this.onLogout,
+  });
 
+  final AppServices services;
+  final String agentId;
   final VoidCallback onLogout;
 
   @override
@@ -298,22 +427,42 @@ class _AgentEarningsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
-        const Card(
-          child: ListTile(
-            title: Text('Earnings Breakdown'),
-            subtitle: Text(
-              'Verification: N500 x 7 = N3,500\n'
-              'Assisted registrations: N200 x 2 = N400\n'
-              'Quality bonus: N300\n'
-              'Total: N4,200',
-            ),
-          ),
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(agentId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final WalletBalance balance = snapshot.data ??
+                WalletBalance(
+                  userId: agentId,
+                  available: 0,
+                  inEscrow: 0,
+                  updatedAt: DateTime.now(),
+                );
+            return Card(
+              child: ListTile(
+                title: const Text('Available Earnings'),
+                subtitle: Text('N${balance.available.toStringAsFixed(0)}'),
+              ),
+            );
+          },
         ),
-        const Card(
-          child: ListTile(
-            title: Text('Performance Metrics'),
-            subtitle: Text('Completion rate 98% • Accuracy 4.9/5 • Avg task time 52 min'),
-          ),
+        StreamBuilder<List<WalletTransaction>>(
+          stream: services.wallet.watchTransactions(agentId),
+          builder: (
+            BuildContext context,
+            AsyncSnapshot<List<WalletTransaction>> snapshot,
+          ) {
+            final int taskCredits = (snapshot.data ?? <WalletTransaction>[])
+                .where((WalletTransaction txn) =>
+                    txn.type == WalletTransactionType.credit &&
+                    txn.reference.startsWith('verification-task'))
+                .length;
+            return Card(
+              child: ListTile(
+                title: const Text('Performance Metrics'),
+                subtitle: Text('Completed paid tasks: $taskCredits'),
+              ),
+            );
+          },
         ),
         FilledButton(
           onPressed: onLogout,

@@ -3,6 +3,8 @@ import '../domain/domain.dart';
 abstract class InventoryService {
   Stream<List<InventoryItem>> watchInventoryForFarmer(String farmerId);
 
+  Stream<List<InventoryItem>> watchAllInventory();
+
   Future<InventoryItem> declareHarvest({
     required String farmerId,
     required String crop,

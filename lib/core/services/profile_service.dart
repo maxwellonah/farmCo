@@ -12,4 +12,10 @@ abstract class ProfileService {
   Future<BuyerProfile?> getBuyerProfile(String userId);
 
   Future<AgentProfile?> getAgentProfile(String userId);
+
+  Future<List<FarmerProfile>> listFarmers();
+
+  Future<List<BuyerProfile>> listBuyers();
+
+  Future<List<AgentProfile>> listAgents();
 }

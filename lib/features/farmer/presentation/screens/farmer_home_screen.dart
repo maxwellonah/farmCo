@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
 import 'auction_flow_screen.dart';
 import 'harvest_flow_screen.dart';
 
 class FarmerHomeScreen extends StatefulWidget {
-  const FarmerHomeScreen({super.key, required this.onLogout});
+  const FarmerHomeScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+    required this.onLogout,
+  });
 
+  final AppServices services;
+  final String farmerId;
   final VoidCallback onLogout;
 
   @override
@@ -17,13 +26,18 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
 
   void _openHarvestFlow() {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const HarvestFlowScreen()),
+      MaterialPageRoute<void>(
+        builder: (_) => HarvestFlowScreen(
+          services: widget.services,
+          farmerId: widget.farmerId,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<String> titles = <String>[
+    const List<String> titles = <String>[
       'Dashboard',
       'Inventory',
       'Wallet',
@@ -32,11 +46,23 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
     ];
 
     final List<Widget> pages = <Widget>[
-      _DashboardTab(onDeclareHarvest: _openHarvestFlow),
-      _InventoryTab(onDeclareHarvest: _openHarvestFlow),
-      const _WalletTab(),
-      const _MarketTab(),
-      _ProfileTab(onLogout: widget.onLogout),
+      _DashboardTab(
+        services: widget.services,
+        farmerId: widget.farmerId,
+        onDeclareHarvest: _openHarvestFlow,
+      ),
+      _InventoryTab(
+        services: widget.services,
+        farmerId: widget.farmerId,
+        onDeclareHarvest: _openHarvestFlow,
+      ),
+      _WalletTab(services: widget.services, farmerId: widget.farmerId),
+      _MarketTab(services: widget.services),
+      _ProfileTab(
+        services: widget.services,
+        farmerId: widget.farmerId,
+        onLogout: widget.onLogout,
+      ),
     ];
 
     return Scaffold(
@@ -69,8 +95,14 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
 }
 
 class _DashboardTab extends StatelessWidget {
-  const _DashboardTab({required this.onDeclareHarvest});
+  const _DashboardTab({
+    required this.services,
+    required this.farmerId,
+    required this.onDeclareHarvest,
+  });
 
+  final AppServices services;
+  final String farmerId;
   final VoidCallback onDeclareHarvest;
 
   @override
@@ -78,29 +110,71 @@ class _DashboardTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
-        const Text(
-          'Good morning, Chika!',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+        FutureBuilder<FarmerProfile?>(
+          future: services.profiles.getFarmerProfile(farmerId),
+          builder: (BuildContext context, AsyncSnapshot<FarmerProfile?> snapshot) {
+            final FarmerProfile? profile = snapshot.data;
+            final String firstName = profile?.firstName ?? 'Farmer';
+            final String farmName = profile?.farmName ?? 'Farm';
+            final String location = profile?.location ?? 'Nigeria';
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Good morning, $firstName!',
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                Text('$farmName • $location'),
+              ],
+            );
+          },
         ),
-        const Text("Chika's Maize Farm • Kaduna State"),
         const SizedBox(height: 12),
-        const Card(
-          child: ListTile(
-            title: Text('Total Sales (Month)'),
-            subtitle: Text('N2,450,000 • Up 15% from last month'),
-          ),
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(farmerId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final double available = snapshot.data?.available ?? 0;
+            return Card(
+              child: ListTile(
+                title: const Text('Total Sales (Wallet Available)'),
+                subtitle: Text('N${available.toStringAsFixed(0)}'),
+              ),
+            );
+          },
         ),
-        const Card(
-          child: ListTile(
-            title: Text('Active Auctions'),
-            subtitle: Text('3 auctions • N1,200,000 total value'),
+        StreamBuilder<List<Auction>>(
+          stream: services.auctions.watchAuctions(
+            farmerId: farmerId,
+            status: AuctionStatus.live,
           ),
+          builder: (BuildContext context, AsyncSnapshot<List<Auction>> snapshot) {
+            final List<Auction> auctions = snapshot.data ?? <Auction>[];
+            final double activeValue = auctions.fold<double>(
+              0,
+              (double prev, Auction auction) => prev + (auction.quantity * 25000),
+            );
+            return Card(
+              child: ListTile(
+                title: const Text('Active Auctions'),
+                subtitle: Text('${auctions.length} auctions • N${activeValue.toStringAsFixed(0)} value'),
+              ),
+            );
+          },
         ),
-        const Card(
-          child: ListTile(
-            title: Text('Verified Stock'),
-            subtitle: Text('120 bags of Maize'),
-          ),
+        StreamBuilder<List<InventoryItem>>(
+          stream: services.inventory.watchInventoryForFarmer(farmerId),
+          builder: (BuildContext context, AsyncSnapshot<List<InventoryItem>> snapshot) {
+            final List<InventoryItem> items = snapshot.data ?? <InventoryItem>[];
+            final double verifiedQty = items
+                .where((InventoryItem item) => item.status == InventoryStatus.verifiedReady)
+                .fold<double>(0, (double prev, InventoryItem item) => prev + item.quantity);
+            return Card(
+              child: ListTile(
+                title: const Text('Verified Stock'),
+                subtitle: Text('${verifiedQty.toStringAsFixed(0)} bags'),
+              ),
+            );
+          },
         ),
         const SizedBox(height: 8),
         FilledButton.icon(
@@ -109,103 +183,236 @@ class _DashboardTab extends StatelessWidget {
           label: const Text('New Harvest Declaration'),
         ),
         const SizedBox(height: 8),
-        const Card(
-          child: ListTile(
-            title: Text('Recent Activity'),
-            subtitle: Text('Auction #FC-78901 completed - N2.04M received'),
-          ),
+        StreamBuilder<List<FarmNotification>>(
+          stream: services.notifications.watchNotifications(farmerId),
+          builder: (BuildContext context, AsyncSnapshot<List<FarmNotification>> snapshot) {
+            final FarmNotification? latest =
+                (snapshot.data ?? <FarmNotification>[]).isEmpty
+                    ? null
+                    : snapshot.data!.first;
+            return Card(
+              child: ListTile(
+                title: const Text('Recent Activity'),
+                subtitle: Text(latest?.body ?? 'No activity yet'),
+              ),
+            );
+          },
         ),
       ],
     );
   }
 }
 
-class _InventoryTab extends StatelessWidget {
-  const _InventoryTab({required this.onDeclareHarvest});
+class _InventoryTab extends StatefulWidget {
+  const _InventoryTab({
+    required this.services,
+    required this.farmerId,
+    required this.onDeclareHarvest,
+  });
 
+  final AppServices services;
+  final String farmerId;
   final VoidCallback onDeclareHarvest;
+
+  @override
+  State<_InventoryTab> createState() => _InventoryTabState();
+}
+
+class _InventoryTabState extends State<_InventoryTab> {
+  InventoryStatus? _selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<MapEntry<String, InventoryStatus?>> filters =
+        <MapEntry<String, InventoryStatus?>>[
+      const MapEntry<String, InventoryStatus?>('All', null),
+      const MapEntry<String, InventoryStatus?>('Verified', InventoryStatus.verifiedReady),
+      const MapEntry<String, InventoryStatus?>('In Auction', InventoryStatus.inAuction),
+      const MapEntry<String, InventoryStatus?>('Sold', InventoryStatus.sold),
+      const MapEntry<String, InventoryStatus?>('Unverified', InventoryStatus.unverified),
+    ];
+
+    return StreamBuilder<List<InventoryItem>>(
+      stream: widget.services.inventory.watchInventoryForFarmer(widget.farmerId),
+      builder: (BuildContext context, AsyncSnapshot<List<InventoryItem>> snapshot) {
+        final List<InventoryItem> items = snapshot.data ?? <InventoryItem>[];
+        final List<InventoryItem> filtered = _selected == null
+            ? items
+            : items.where((InventoryItem item) => item.status == _selected).toList();
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: filters
+                  .map(
+                    (MapEntry<String, InventoryStatus?> entry) => ChoiceChip(
+                      label: Text(entry.key),
+                      selected: _selected == entry.value,
+                      onSelected: (_) {
+                        setState(() {
+                          _selected = entry.value;
+                        });
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 12),
+            if (filtered.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: <Widget>[
+                      const Icon(Icons.inventory_2_outlined, size: 48),
+                      const SizedBox(height: 8),
+                      const Text('No inventory in this filter'),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: widget.onDeclareHarvest,
+                        child: const Text('Declare First Harvest'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...filtered.map((InventoryItem item) => _InventoryCard(
+                    item: item,
+                    services: widget.services,
+                    farmerId: widget.farmerId,
+                  )),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _InventoryCard extends StatelessWidget {
+  const _InventoryCard({
+    required this.item,
+    required this.services,
+    required this.farmerId,
+  });
+
+  final InventoryItem item;
+  final AppServices services;
+  final String farmerId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '${item.crop.toUpperCase()} - ${item.unit.toUpperCase()}',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const Divider(),
+            Text('Stored: ${item.storageLocation}'),
+            Text('Quantity: ${item.quantity.toStringAsFixed(0)} ${item.unit}'),
+            Text('Harvested: ${item.harvestDate.toLocal().toString().split(' ').first}'),
+            Text('Status: ${item.status.name}'),
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: FilledButton(
+                    onPressed: item.status == InventoryStatus.verifiedReady
+                        ? () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => AuctionFlowScreen(
+                                  services: services,
+                                  farmerId: farmerId,
+                                  inventoryId: item.id,
+                                  crop: item.crop,
+                                  quantity: item.quantity,
+                                ),
+                              ),
+                            );
+                          }
+                        : null,
+                    child: const Text('Create Auction'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WalletTab extends StatelessWidget {
+  const _WalletTab({required this.services, required this.farmerId});
+
+  final AppServices services;
+  final String farmerId;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
-        Wrap(
-          spacing: 8,
-          children: const <Widget>[
-            Chip(label: Text('All')),
-            Chip(label: Text('Verified')),
-            Chip(label: Text('In Auction')),
-            Chip(label: Text('Sold')),
-            Chip(label: Text('Unverified')),
-          ],
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(farmerId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final WalletBalance balance = snapshot.data ??
+                WalletBalance(
+                  userId: farmerId,
+                  available: 0,
+                  inEscrow: 0,
+                  updatedAt: DateTime.now(),
+                );
+            return Card(
+              child: ListTile(
+                title: const Text('Available Balance'),
+                subtitle: Text('N${balance.available.toStringAsFixed(0)}'),
+              ),
+            );
+          },
         ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Text(
-                  'MAIZE - GRADE A',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        StreamBuilder<WalletBalance>(
+          stream: services.wallet.watchBalance(farmerId),
+          builder: (BuildContext context, AsyncSnapshot<WalletBalance> snapshot) {
+            final double escrow = snapshot.data?.inEscrow ?? 0;
+            return Card(
+              child: ListTile(
+                title: const Text('In Escrow'),
+                subtitle: Text('N${escrow.toStringAsFixed(0)}'),
+              ),
+            );
+          },
+        ),
+        StreamBuilder<List<WalletTransaction>>(
+          stream: services.wallet.watchTransactions(farmerId),
+          builder: (
+            BuildContext context,
+            AsyncSnapshot<List<WalletTransaction>> snapshot,
+          ) {
+            final List<WalletTransaction> txns =
+                snapshot.data ?? <WalletTransaction>[];
+            final WalletTransaction? latest = txns.isEmpty ? null : txns.first;
+            return Card(
+              child: ListTile(
+                title: const Text('Recent Transaction'),
+                subtitle: Text(
+                  latest == null
+                      ? 'No transactions yet'
+                      : '${latest.type.name} • N${latest.amount.toStringAsFixed(0)} • ${latest.reference}',
                 ),
-                const Divider(),
-                const Text('Stored: On-farm storage'),
-                const Text('Quantity: 120 bags'),
-                const Text('Harvested: Jan 12, 2026'),
-                const Text('Status: VERIFIED READY'),
-                const SizedBox(height: 10),
-                FilledButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const AuctionFlowScreen(),
-                      ),
-                    );
-                  },
-                  child: const Text('Create Auction'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton(
-          onPressed: onDeclareHarvest,
-          child: const Text('Declare First Harvest'),
-        ),
-      ],
-    );
-  }
-}
-
-class _WalletTab extends StatelessWidget {
-  const _WalletTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: const <Widget>[
-        Card(
-          child: ListTile(
-            title: Text('Available Balance'),
-            subtitle: Text('N1,978,300'),
-          ),
-        ),
-        Card(
-          child: ListTile(
-            title: Text('In Escrow'),
-            subtitle: Text('N0'),
-          ),
-        ),
-        Card(
-          child: ListTile(
-            title: Text('Recent Transaction'),
-            subtitle: Text('Jan 13 - Credit: N1,978,300'),
-          ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -213,63 +420,92 @@ class _WalletTab extends StatelessWidget {
 }
 
 class _MarketTab extends StatelessWidget {
-  const _MarketTab();
+  const _MarketTab({required this.services});
+
+  final AppServices services;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: const <Widget>[
-        Card(
-          child: ListTile(
-            title: Text('Price Trends'),
-            subtitle: Text('Maize average: N25,000/bag (Kaduna)'),
-          ),
-        ),
-        Card(
-          child: ListTile(
-            title: Text('Demand Heatmap'),
-            subtitle: Text('High demand in Kaduna, Kano, Oyo'),
-          ),
-        ),
-        Card(
-          child: ListTile(
-            title: Text('Buyer Requests'),
-            subtitle: Text('Green Mills needs 500 bags Maize'),
-          ),
-        ),
-      ],
+    return StreamBuilder<List<Auction>>(
+      stream: services.auctions.watchAuctions(status: AuctionStatus.live),
+      builder: (BuildContext context, AsyncSnapshot<List<Auction>> snapshot) {
+        final List<Auction> auctions = snapshot.data ?? <Auction>[];
+        final int maizeLive = auctions.where((Auction a) => a.crop == 'Maize').length;
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            Card(
+              child: ListTile(
+                title: const Text('Price Trends'),
+                subtitle: Text('Live maize auctions: $maizeLive'),
+              ),
+            ),
+            const Card(
+              child: ListTile(
+                title: Text('Demand Heatmap'),
+                subtitle: Text('High demand in Kaduna, Kano, Oyo'),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                title: const Text('Buyer Requests'),
+                subtitle: Text(
+                  auctions.isEmpty
+                      ? 'No active requests'
+                      : '${auctions.length} active auction opportunities',
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 class _ProfileTab extends StatelessWidget {
-  const _ProfileTab({required this.onLogout});
+  const _ProfileTab({
+    required this.services,
+    required this.farmerId,
+    required this.onLogout,
+  });
 
+  final AppServices services;
+  final String farmerId;
   final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: <Widget>[
-        const Card(
-          child: ListTile(
-            title: Text('Farmer ID'),
-            subtitle: Text('FC-FARMER-038472'),
-          ),
-        ),
-        const Card(
-          child: ListTile(
-            title: Text('Performance'),
-            subtitle: Text('Total sales: N4.5M • Rating: 4.8/5'),
-          ),
-        ),
-        FilledButton(
-          onPressed: onLogout,
-          child: const Text('Logout'),
-        ),
-      ],
+    return FutureBuilder<FarmerProfile?>(
+      future: services.profiles.getFarmerProfile(farmerId),
+      builder: (BuildContext context, AsyncSnapshot<FarmerProfile?> snapshot) {
+        final FarmerProfile? profile = snapshot.data;
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            Card(
+              child: ListTile(
+                title: const Text('Farmer ID'),
+                subtitle: Text(profile?.farmerId ?? 'FC-FARMER-038472'),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                title: const Text('Profile'),
+                subtitle: Text(
+                  profile == null
+                      ? 'Profile not loaded'
+                      : '${profile.firstName} ${profile.lastName} • ${profile.farmName}',
+                ),
+              ),
+            ),
+            FilledButton(
+              onPressed: onLogout,
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

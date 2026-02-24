@@ -1,13 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/domain/domain.dart';
+import '../../../../core/services/app_services.dart';
 import '../../domain/verification_method.dart';
 import 'auction_flow_screen.dart';
 import 'harvest_flow_screen.dart';
 
 class VerificationStatusScreen extends StatelessWidget {
-  const VerificationStatusScreen({super.key, required this.method});
+  const VerificationStatusScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+    required this.inventoryId,
+    required this.method,
+  });
 
+  final AppServices services;
+  final String farmerId;
+  final String inventoryId;
   final VerificationMethod method;
+
+  VerificationType get _verificationType => switch (method) {
+        VerificationMethod.photo => VerificationType.photo,
+        VerificationMethod.agent => VerificationType.agent,
+        VerificationMethod.warehouse => VerificationType.warehouse,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -47,10 +64,33 @@ class VerificationStatusScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
+                await services.inventory.updateStatus(
+                  inventoryId: inventoryId,
+                  status: InventoryStatus.verifiedReady,
+                  verificationType: _verificationType,
+                );
+                await services.notifications.send(
+                  FarmNotification(
+                    id: 'notif-${DateTime.now().microsecondsSinceEpoch}',
+                    userId: farmerId,
+                    type: FarmNotificationType.verificationUpdate,
+                    title: 'Inventory Verified',
+                    body: 'Your inventory has been verified successfully.',
+                    createdAt: DateTime.now(),
+                    isRead: false,
+                  ),
+                );
+                if (!context.mounted) {
+                  return;
+                }
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const VerificationSuccessScreen(),
+                    builder: (_) => VerificationSuccessScreen(
+                      services: services,
+                      farmerId: farmerId,
+                      inventoryId: inventoryId,
+                    ),
                   ),
                 );
               },
@@ -58,10 +98,21 @@ class VerificationStatusScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             OutlinedButton(
-              onPressed: () {
+              onPressed: () async {
+                await services.inventory.updateStatus(
+                  inventoryId: inventoryId,
+                  status: InventoryStatus.unverified,
+                  verificationType: _verificationType,
+                );
+                if (!context.mounted) {
+                  return;
+                }
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const VerificationFailedScreen(),
+                    builder: (_) => VerificationFailedScreen(
+                      services: services,
+                      farmerId: farmerId,
+                    ),
                   ),
                 );
               },
@@ -75,54 +126,84 @@ class VerificationStatusScreen extends StatelessWidget {
 }
 
 class VerificationSuccessScreen extends StatelessWidget {
-  const VerificationSuccessScreen({super.key});
+  const VerificationSuccessScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+    required this.inventoryId,
+  });
+
+  final AppServices services;
+  final String farmerId;
+  final String inventoryId;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Verification Success')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: <Widget>[
-          const Icon(Icons.verified, size: 76, color: Colors.green),
-          const SizedBox(height: 12),
-          const Text(
-            'Your Inventory is VERIFIED!',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Certificate #FC-VER-235678\n'
-                'Crop: Maize\n'
-                'Quantity: 120 bags\n'
-                'Quality Grade: A\n'
-                'Moisture: 12%\n'
-                'Verified by: Photo AI\n'
-                'Date: Jan 12, 2026 14:30',
+      body: FutureBuilder<InventoryItem?>(
+        future: services.inventory.getById(inventoryId),
+        builder: (BuildContext context, AsyncSnapshot<InventoryItem?> snapshot) {
+          final InventoryItem? item = snapshot.data;
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              const Icon(Icons.verified, size: 76, color: Colors.green),
+              const SizedBox(height: 12),
+              const Text(
+                'Your Inventory is VERIFIED!',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const AuctionFlowScreen()),
-              );
-            },
-            child: const Text('Create Auction Now'),
-          ),
-        ],
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'Certificate #FC-VER-235678\n'
+                    'Crop: ${item?.crop ?? 'Unknown'}\n'
+                    'Quantity: ${item?.quantity.toStringAsFixed(0) ?? '0'} ${item?.unit ?? 'bags'}\n'
+                    'Quality Grade: A\n'
+                    'Moisture: 12%\n'
+                    'Verified by: ${item?.verificationType.name ?? 'photo'}\n'
+                    'Date: ${DateTime.now().toLocal()}',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => AuctionFlowScreen(
+                        services: services,
+                        farmerId: farmerId,
+                        inventoryId: inventoryId,
+                        crop: item?.crop ?? 'Maize',
+                        quantity: item?.quantity ?? 0,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Create Auction Now'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
 class VerificationFailedScreen extends StatelessWidget {
-  const VerificationFailedScreen({super.key});
+  const VerificationFailedScreen({
+    super.key,
+    required this.services,
+    required this.farmerId,
+  });
+
+  final AppServices services;
+  final String farmerId;
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +227,10 @@ class VerificationFailedScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute<void>(
-                    builder: (_) => const HarvestFlowScreen(),
+                    builder: (_) => HarvestFlowScreen(
+                      services: services,
+                      farmerId: farmerId,
+                    ),
                   ),
                 );
               },

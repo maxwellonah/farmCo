@@ -1,6 +1,8 @@
 import '../domain/domain.dart';
 
 abstract class OrderService {
+  Stream<List<Order>> watchAllOrders();
+
   Stream<List<Order>> watchOrdersForFarmer(String farmerId);
 
   Stream<List<Order>> watchOrdersForBuyer(String buyerId);

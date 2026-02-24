@@ -8,6 +8,8 @@ class InMemoryInventoryService implements InventoryService {
   final Map<String, InventoryItem> _items = <String, InventoryItem>{};
   final Map<String, StreamController<List<InventoryItem>>> _controllers =
       <String, StreamController<List<InventoryItem>>>{};
+  final StreamController<List<InventoryItem>> _allController =
+      StreamController<List<InventoryItem>>.broadcast();
 
   @override
   Future<InventoryItem> declareHarvest({
@@ -32,6 +34,7 @@ class InMemoryInventoryService implements InventoryService {
     );
     _items[item.id] = item;
     _emit(farmerId);
+    _emitAll();
     return item;
   }
 
@@ -53,6 +56,7 @@ class InMemoryInventoryService implements InventoryService {
       verificationType: verificationType,
     );
     _emit(existing.farmerId);
+    _emitAll();
   }
 
   @override
@@ -64,6 +68,12 @@ class InMemoryInventoryService implements InventoryService {
     );
     _emit(farmerId);
     return controller.stream;
+  }
+
+  @override
+  Stream<List<InventoryItem>> watchAllInventory() async* {
+    _emitAll();
+    yield* _allController.stream;
   }
 
   void _emit(String farmerId) {
@@ -79,10 +89,20 @@ class InMemoryInventoryService implements InventoryService {
     controller.add(data);
   }
 
+  void _emitAll() {
+    if (_allController.isClosed) {
+      return;
+    }
+    final List<InventoryItem> data = _items.values.toList()
+      ..sort((InventoryItem a, InventoryItem b) => b.createdAt.compareTo(a.createdAt));
+    _allController.add(data);
+  }
+
   Future<void> dispose() async {
     for (final StreamController<List<InventoryItem>> controller
         in _controllers.values) {
       await controller.close();
     }
+    await _allController.close();
   }
 }
